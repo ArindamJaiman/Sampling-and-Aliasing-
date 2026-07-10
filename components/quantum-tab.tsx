@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useMemo, lazy, Suspense, useCallback } from 'react';
-import { simulateQuantum, type QuantumConfig, type QuantumResult } from '@/lib/quantum';
+import { useState, useMemo, lazy, Suspense, useCallback, useEffect } from 'react';
+import * as THREE from 'three';
+import { simulateQuantum, type QuantumConfig, type QuantumResult, type BlochPoint } from '@/lib/quantum';
 import { downloadJSON } from '@/lib/audio';
 import { Panel, Metric, Field, QualityBar, StatusBadge, Explain, ActionButton } from '@/components/ui-bits';
 import { SpectrumChart } from '@/components/charts';
@@ -36,6 +37,47 @@ export default function QuantumTab({ edu }: { edu: boolean }) {
     () => result.qftSpectrum.slice(0, 100).map((p) => ({ frequency: p.frequency, magnitude: p.magnitude })),
     [result.qftSpectrum],
   );
+
+  // ── Quantum Playground State ──────────────────────────────
+  const [interactivePath, setInteractivePath] = useState<BlochPoint[]>([]);
+
+  // Sync interactive path with simulation result when config changes
+  useEffect(() => {
+    setInteractivePath(result.blochPath);
+  }, [result.blochPath]);
+
+  // Apply gate operation and append to path
+  const handleGate = useCallback((gate: 'X' | 'Y' | 'Z' | 'H') => {
+    setInteractivePath((prev) => {
+      if (prev.length === 0) return prev;
+      const last = prev[prev.length - 1];
+      const startVec = new THREE.Vector3(last.x, last.y, last.z);
+      const axis = new THREE.Vector3();
+      let angle = Math.PI; // 180 degrees for Pauli and Hadamard
+
+      if (gate === 'X') axis.set(1, 0, 0);
+      else if (gate === 'Y') axis.set(0, 1, 0);
+      else if (gate === 'Z') axis.set(0, 0, 1);
+      else if (gate === 'H') axis.set(1, 0, 1).normalize();
+
+      const pathExt: BlochPoint[] = [];
+      const frames = 30; // 30 interpolation frames for smooth animation
+      
+      for (let i = 1; i <= frames; i++) {
+        const t = i / frames;
+        const qInterp = new THREE.Quaternion().setFromAxisAngle(axis, angle * t);
+        const interpVec = startVec.clone().applyQuaternion(qInterp);
+        pathExt.push({
+          x: interpVec.x,
+          y: interpVec.y,
+          z: interpVec.z,
+          t: last.t + t * 0.05, // synthetic time step
+          phi: last.phi, // phi doesn't matter for pure state visual
+        });
+      }
+      return [...prev, ...pathExt];
+    });
+  }, []);
 
   const handleExport = useCallback(() => {
     downloadJSON({
@@ -133,8 +175,26 @@ export default function QuantumTab({ edu }: { edu: boolean }) {
               </div>
             </div>
           }>
-            <BlochSphere blochPath={result.blochPath} animationSpeed={animSpeed} autoRotate className="aspect-square" />
+            <BlochSphere blochPath={interactivePath} animationSpeed={animSpeed} autoRotate className="aspect-square border-b border-white/[0.06]" />
           </Suspense>
+
+          {/* Playground Controls */}
+          <div className="flex items-center justify-between px-5 py-3 bg-white/[0.02]">
+            <span className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Apply Gates</span>
+            <div className="flex items-center gap-2">
+              <GateButton label="H" onClick={() => handleGate('H')} color="purple" />
+              <GateButton label="X" onClick={() => handleGate('X')} color="red" />
+              <GateButton label="Y" onClick={() => handleGate('Y')} color="blue" />
+              <GateButton label="Z" onClick={() => handleGate('Z')} color="green" />
+              <div className="w-px h-4 bg-white/10 mx-1" />
+              <button 
+                onClick={() => setInteractivePath(result.blochPath)}
+                className="rounded-md px-2.5 py-1.5 bg-white/5 hover:bg-white/10 text-[10px] text-white/50 transition-colors"
+              >
+                Reset
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Metrics grid */}
@@ -202,5 +262,22 @@ function QualIcon() {
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-400">
       <path d="M9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" /><circle cx="12" cy="12" r="10" />
     </svg>
+  );
+}
+
+function GateButton({ label, onClick, color }: { label: string, onClick: () => void, color: string }) {
+  const colors: Record<string, string> = {
+    purple: 'bg-purple-500/10 text-purple-400 border-purple-500/30 hover:bg-purple-500/20 shadow-[0_0_10px_rgba(168,85,247,0.1)]',
+    red: 'bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20 shadow-[0_0_10px_rgba(239,68,68,0.1)]',
+    blue: 'bg-blue-500/10 text-blue-400 border-blue-500/30 hover:bg-blue-500/20 shadow-[0_0_10px_rgba(59,130,246,0.1)]',
+    green: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)]',
+  };
+  return (
+    <button 
+      onClick={onClick}
+      className={`h-7 w-7 rounded border text-[11px] font-bold transition-all ${colors[color]}`}
+    >
+      {label}
+    </button>
   );
 }

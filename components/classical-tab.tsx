@@ -1,15 +1,17 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, lazy, Suspense } from 'react';
 import {
   generateWave, evalExpression, parseCSV,
   timeMetrics, freqMetrics, analyzeAliasing,
-  applyCorrection, compareSignals, downsample,
+  applyCorrection, compareSignals, downsample, computeSTFT,
   type WaveformType, type CorrectionMethod, type Signal,
 } from '@/lib/dsp';
 import { downloadText } from '@/lib/audio';
 import { Panel, Metric, Field, QualityBar, StatusBadge, Explain, ActionButton } from '@/components/ui-bits';
 import { SignalChart, SpectrumChart } from '@/components/charts';
+
+const WaterfallPlot = lazy(() => import('@/components/waterfall-plot'));
 
 type InputMode = 'generator' | 'expression' | 'csv';
 
@@ -102,6 +104,16 @@ export default function ClassicalTab({ edu }: { edu: boolean }) {
     () => (corrected && corrFreq) ? compareSignals(sampledSignal, corrected, sampFreq, corrFreq) : null,
     [corrected, corrFreq, sampledSignal, sampFreq],
   );
+
+  // STFT for Waterfall
+  const stftResult = useMemo(() => {
+    const target = corrected ?? sampledSignal;
+    const n = target.samples.length;
+    // Scale window size to get a decent number of time slices regardless of signal length
+    const winSize = Math.min(256, Math.max(16, Math.floor(n / 4))); 
+    const hopSize = Math.max(1, Math.floor(winSize / 8));
+    return computeSTFT(target.samples, target.fs, winSize, hopSize);
+  }, [sampledSignal, corrected]);
 
   // Chart data
   const sourceChartData = useMemo(
@@ -325,6 +337,20 @@ export default function ClassicalTab({ edu }: { edu: boolean }) {
             </Explain>
           </Panel>
         )}
+      </div>
+
+      {/* 3D Spectrogram (Full Width) */}
+      <div className="lg:col-span-2 space-y-3 mt-4">
+        <Suspense fallback={
+          <div className="flex items-center justify-center h-80 rounded-2xl border border-white/[0.06] bg-black/40 text-white/20 text-sm">
+            <div className="flex flex-col items-center gap-3">
+              <div className="h-8 w-8 rounded-full border-2 border-cyan-500/30 border-t-cyan-500 animate-spin" />
+              <span>Initializing 3D Spectrogram…</span>
+            </div>
+          </div>
+        }>
+          <WaterfallPlot stft={stftResult} className="h-96 w-full" autoPan={true} />
+        </Suspense>
       </div>
     </div>
   );

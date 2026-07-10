@@ -136,3 +136,34 @@ export function downloadJSON(data: unknown, name: string): void {
   const blob = new Blob([text], { type: 'application/json' });
   downloadBlob(blob, name);
 }
+
+// ── Tone Generator ──────────────────────────────────────────
+
+export function generateTone(
+  type: 'sine' | 'square' | 'sawtooth',
+  freq: number,
+  durationSecs: number,
+  fs: number = 44100
+): AudioData {
+  const numSamples = Math.floor(fs * durationSecs);
+  const samples = new Float32Array(numSamples);
+  const angularFreq = 2 * Math.PI * freq;
+
+  for (let i = 0; i < numSamples; i++) {
+    const t = i / fs;
+    if (type === 'sine') {
+      samples[i] = Math.sin(angularFreq * t);
+    } else if (type === 'square') {
+      samples[i] = Math.sign(Math.sin(angularFreq * t));
+    } else if (type === 'sawtooth') {
+      samples[i] = 2 * ((t * freq) - Math.floor(t * freq + 0.5));
+    }
+  }
+
+  return {
+    samples,
+    fs,
+    channels: 1,
+    bitDepth: 32, // Float32
+  };
+}

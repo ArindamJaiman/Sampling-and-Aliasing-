@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { decodeWav, encodeWav, downloadBlob, type AudioData } from '@/lib/audio';
+import { decodeWav, encodeWav, downloadBlob, generateTone, type AudioData } from '@/lib/audio';
 import {
   downsample, applyCorrection, freqMetrics, analyzeAliasing,
   compareSignals, type CorrectionMethod, type Signal,
@@ -31,6 +31,10 @@ export default function AudioTab({ edu }: { edu: boolean }) {
   const [playing, setPlaying] = useState<'none' | 'original' | 'aliased' | 'corrected'>('none');
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
+
+  // Tone Generator state
+  const [toneType, setToneType] = useState<'sine' | 'square' | 'sawtooth'>('sine');
+  const [toneFreq, setToneFreq] = useState(5000);
 
   // Supabase cloud state
   const supabaseReady = isSupabaseConfigured();
@@ -75,6 +79,16 @@ export default function AudioTab({ edu }: { edu: boolean }) {
       console.error('WAV decode error:', err);
     }
   }, []);
+
+  // ── Tone generation ───────────────────────────────────────
+
+  const handleGenerateTone = useCallback(() => {
+    const data = generateTone(toneType, toneFreq, 2.0); // 2 second tone
+    setAudioData(data);
+    setFileName(`Synthetic ${toneType} tone (${toneFreq} Hz)`);
+    setTargetFs(Math.min(data.fs / 2, 8000));
+    fileInputRef.current = null; // Clear file input
+  }, [toneType, toneFreq]);
 
   // ── Cloud upload ──────────────────────────────────────────
 
@@ -218,15 +232,61 @@ export default function AudioTab({ edu }: { edu: boolean }) {
     <div className="space-y-5">
       {/* Upload + Config row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Upload */}
-        <Panel title="Audio Input" icon={<MicIcon />}>
-          <label className="flex flex-col items-center justify-center h-28 rounded-xl border-2 border-dashed border-white/[0.08] bg-white/[0.02] cursor-pointer hover:border-cyan-500/30 hover:bg-cyan-500/[0.02] transition-all">
-            <input type="file" accept=".wav" onChange={handleFile} className="hidden" />
-            <UploadIcon />
-            <span className="text-xs text-white/30 mt-2">
-              {fileName || 'Drop a WAV file or click to browse'}
-            </span>
-          </label>
+        {/* Audio Source */}
+        <Panel title="Audio Source" icon={<MicIcon />}>
+          <div className="space-y-4">
+            {/* Upload */}
+            <div>
+              <div className="text-xs font-medium text-white/50 mb-2">Upload WAV</div>
+              <label className="flex flex-col items-center justify-center h-20 rounded-xl border-2 border-dashed border-white/[0.08] bg-white/[0.02] cursor-pointer hover:border-cyan-500/30 hover:bg-cyan-500/[0.02] transition-all">
+                <input type="file" accept=".wav" onChange={handleFile} className="hidden" />
+                <UploadIcon />
+                <span className="text-xs text-white/30 mt-2">
+                  {fileName && fileInputRef.current ? fileName : 'Drop a WAV file or click to browse'}
+                </span>
+              </label>
+            </div>
+            
+            <div className="h-px bg-white/[0.06]" />
+
+            {/* Tone Generator */}
+            <div>
+              <div className="text-xs font-medium text-white/50 mb-2 flex items-center justify-between">
+                <span>Built-in Tone Generator</span>
+                <span className="text-[10px] text-white/30">2 seconds</span>
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <select 
+                    value={toneType} 
+                    onChange={(e) => setToneType(e.target.value as any)}
+                    className="w-full h-8 bg-black/40 border border-white/[0.1] rounded-md text-xs px-2 text-white/80 focus:border-cyan-500 outline-none"
+                  >
+                    <option value="sine">Sine</option>
+                    <option value="square">Square</option>
+                    <option value="sawtooth">Saw</option>
+                  </select>
+                </div>
+                <div className="flex-[0.8] relative">
+                  <input 
+                    type="number" 
+                    value={toneFreq} 
+                    onChange={(e) => setToneFreq(Number(e.target.value))}
+                    className="w-full h-8 bg-black/40 border border-white/[0.1] rounded-md text-xs pl-2 pr-6 text-white/80 focus:border-cyan-500 outline-none"
+                    placeholder="Freq"
+                  />
+                  <span className="absolute right-2 top-2 text-[10px] text-white/30 pointer-events-none">Hz</span>
+                </div>
+                <button 
+                  onClick={handleGenerateTone}
+                  className="h-8 px-3 rounded-md bg-cyan-500/20 text-cyan-400 text-xs font-medium hover:bg-cyan-500/30 transition-colors border border-cyan-500/30"
+                >
+                  Generate
+                </button>
+              </div>
+            </div>
+          </div>
+
           {audioData && (
             <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] text-white/40">
               <span>Sample Rate: <span className="text-white/60 font-mono">{audioData.fs} Hz</span></span>

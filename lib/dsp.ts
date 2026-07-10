@@ -146,6 +146,52 @@ export function computeSpectrum(samples: Float64Array, fs: number): SpectrumPoin
   return result;
 }
 
+export interface STFTResult {
+  times: number[];
+  frequencies: number[];
+  magnitudes: Float32Array[];
+}
+
+export function computeSTFT(
+  samples: Float64Array,
+  fs: number,
+  windowSize = 256,
+  hopSize = 64
+): STFTResult {
+  const times: number[] = [];
+  const magnitudes: Float32Array[] = [];
+  let frequencies: number[] = [];
+
+  for (let start = 0; start <= samples.length - windowSize; start += hopSize) {
+    // Need to copy the subarray because computeSpectrum might mutate or need a Float64Array
+    const chunk = samples.subarray(start, start + windowSize);
+    // Note: computeSpectrum currently creates a new re/im array and applies Hann internally.
+    const spectrum = computeSpectrum(chunk, fs);
+    
+    if (frequencies.length === 0) {
+      frequencies = spectrum.map(s => s.frequency);
+    }
+    
+    const magArray = new Float32Array(spectrum.length);
+    for (let i = 0; i < spectrum.length; i++) magArray[i] = spectrum[i].magnitude;
+    magnitudes.push(magArray);
+    
+    times.push((start + windowSize / 2) / fs);
+  }
+
+  // Handle edge case where samples length is less than windowSize
+  if (magnitudes.length === 0 && samples.length > 0) {
+    const spectrum = computeSpectrum(samples, fs);
+    frequencies = spectrum.map(s => s.frequency);
+    const magArray = new Float32Array(spectrum.length);
+    for (let i = 0; i < spectrum.length; i++) magArray[i] = spectrum[i].magnitude;
+    magnitudes.push(magArray);
+    times.push((samples.length / 2) / fs);
+  }
+
+  return { times, frequencies, magnitudes };
+}
+
 // ── Signal generators ───────────────────────────────────────
 
 export function generateWave(
