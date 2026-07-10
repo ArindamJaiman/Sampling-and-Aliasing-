@@ -43,6 +43,7 @@ export default function AudioTab({ edu }: { edu: boolean }) {
 
   // Demo state
   const [demoLoading, setDemoLoading] = useState<string | null>(null);
+  const [demoLoadedFlag, setDemoLoadedFlag] = useState(false);
 
   // Supabase cloud state
   const supabaseReady = isSupabaseConfigured();
@@ -202,7 +203,9 @@ export default function AudioTab({ edu }: { edu: boolean }) {
         if (!res.ok) throw new Error('Failed to fetch demo');
         const arrayBuffer = await res.arrayBuffer();
         
-        const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+        const audioBuffer = await new Promise<AudioBuffer>((resolve, reject) => {
+          ctx.decodeAudioData(arrayBuffer, resolve, reject);
+        });
         
         const data: AudioData = {
           samples: audioBuffer.getChannelData(0), // Take left channel
@@ -216,6 +219,7 @@ export default function AudioTab({ edu }: { edu: boolean }) {
         setTargetFs(Math.min(data.fs / 2, 8000));
       }
       fileInputRef.current = null;
+      setDemoLoadedFlag(true);
     } catch (err) {
       console.error('Failed to load demo:', err);
       alert('Failed to load demo audio.');
@@ -297,20 +301,52 @@ export default function AudioTab({ edu }: { edu: boolean }) {
     return applyCorrection(aliasedSignal, corrMethod, cutoff);
   }, [aliasedSignal, corrMethod, cutoff]);
 
-  // Metrics
-  const origFM = useMemo(() => originalSignal ? freqMetrics(originalSignal) : null, [originalSignal]);
-  const aliasFM = useMemo(() => aliasedSignal ? freqMetrics(aliasedSignal) : null, [aliasedSignal]);
-  const corrFM = useMemo(() => correctedSignal ? freqMetrics(correctedSignal) : null, [correctedSignal]);
+  // Metrics (limited to first 2 seconds to prevent FFT OOM/freezing on long audio)
+  const getMetricsSignal = (sig: Signal | null) => {
+    if (!sig) return null;
+    const maxSamples = sig.fs * 2; // analyze max 2 seconds
+    if (sig.samples.length <= maxSamples) return sig;
+    return { ...sig, samples: sig.samples.slice(0, maxSamples), duration: 2 };
+  };
+
+  const origFM = useMemo(() => {
+    const ms = getMetricsSignal(originalSignal);
+    return ms ? freqMetrics(ms) : null;
+  }, [originalSignal]);
+
+  const aliasFM = useMemo(() => {
+    const ms = getMetricsSignal(aliasedSignal);
+    return ms ? freqMetrics(ms) : null;
+  }, [aliasedSignal]);
+
+  const corrFM = useMemo(() => {
+    const ms = getMetricsSignal(correctedSignal);
+    return ms ? freqMetrics(ms) : null;
+  }, [correctedSignal]);
+
   const aliasReport = useMemo(
-    () => aliasedSignal && aliasFM ? analyzeAliasing(aliasedSignal, aliasFM) : null,
+    () => aliasedSignal && aliasFM ? analyzeAliasing(getMetricsSignal(aliasedSignal)!, aliasFM) : null,
     [aliasedSignal, aliasFM],
   );
   const comparison = useMemo(
     () => (aliasedSignal && correctedSignal && aliasFM && corrFM)
-      ? compareSignals(aliasedSignal, correctedSignal, aliasFM, corrFM)
+      ? compareSignals(getMetricsSignal(aliasedSignal)!, getMetricsSignal(correctedSignal)!, aliasFM, corrFM)
       : null,
     [aliasedSignal, correctedSignal, aliasFM, corrFM],
   );
+
+  // ── Autoplay Demos ────────────────────────────────────────
+
+  useEffect(() => {
+    if (demoLoadedFlag && originalSignal) {
+      // Small timeout to ensure state has flushed to UI
+      const t = setTimeout(() => {
+        play('original');
+        setDemoLoadedFlag(false);
+      }, 50);
+      return () => clearTimeout(t);
+    }
+  }, [demoLoadedFlag, originalSignal, play]);
 
   // ── Playback ──────────────────────────────────────────────
 
