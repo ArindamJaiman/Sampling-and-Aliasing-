@@ -36,6 +36,14 @@ export default function AudioTab({ edu }: { edu: boolean }) {
   const [toneType, setToneType] = useState<'sine' | 'square' | 'sawtooth'>('sine');
   const [toneFreq, setToneFreq] = useState(5000);
 
+  // Microphone recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  // Demo state
+  const [demoLoading, setDemoLoading] = useState<string | null>(null);
+
   // Supabase cloud state
   const supabaseReady = isSupabaseConfigured();
   const [cloudFiles, setCloudFiles] = useState<CloudAudioFile[]>([]);
@@ -80,6 +88,58 @@ export default function AudioTab({ edu }: { edu: boolean }) {
     }
   }, []);
 
+  // ── Microphone recording ──────────────────────────────────
+
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current);
+        const arrayBuffer = await audioBlob.arrayBuffer();
+        
+        // Decode the recorded browser audio (e.g. WebM/Opus) to raw PCM
+        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+        
+        const data: AudioData = {
+          samples: audioBuffer.getChannelData(0), // Take left channel (mono)
+          fs: audioBuffer.sampleRate,
+          channels: audioBuffer.numberOfChannels,
+          bitDepth: 32, // decodeAudioData always returns Float32
+        };
+        
+        setAudioData(data);
+        setFileName(`Mic Recording - ${new Date().toLocaleTimeString()}`);
+        setTargetFs(Math.min(data.fs / 2, 8000));
+        fileInputRef.current = null; // Clear file input
+        
+        // Release microphone tracks
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Mic access denied or error:', err);
+      alert('Could not access microphone. Please allow permissions in your browser.');
+    }
+  }, []);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  }, [isRecording]);
+
   // ── Tone generation ───────────────────────────────────────
 
   const handleGenerateTone = useCallback(() => {
@@ -89,6 +149,72 @@ export default function AudioTab({ edu }: { edu: boolean }) {
     setTargetFs(Math.min(data.fs / 2, 8000));
     fileInputRef.current = null; // Clear file input
   }, [toneType, toneFreq]);
+
+  // ── Demo Samples ──────────────────────────────────────────
+
+  const handleLoadDemo = useCallback(async (type: 'music' | 'vocal' | 'piano') => {
+    setDemoLoading(type);
+    try {
+      if (type === 'piano') {
+        // Synthesize a beautiful C Major 7 chord (C4, E4, G4, B4) with decay
+        const fs = 44100;
+        const duration = 3.0; // 3 seconds
+        const n = fs * duration;
+        const samples = new Float32Array(n);
+        
+        // Frequencies for Cmaj7
+        const freqs = [261.63, 329.63, 392.00, 493.88];
+        
+        for (let i = 0; i < n; i++) {
+          const t = i / fs;
+          let val = 0;
+          for (const f of freqs) {
+            // Mix of sine and harmonics for piano-like body, with exponential decay
+            const decay = Math.exp(-t * 3);
+            const env = t < 0.05 ? t / 0.05 : decay; // quick attack
+            
+            val += (
+              Math.sin(2 * Math.PI * f * t) * 0.6 + 
+              Math.sin(2 * Math.PI * f * 2 * t) * 0.3 + 
+              Math.sin(2 * Math.PI * f * 3 * t) * 0.1
+            ) * env;
+          }
+          samples[i] = val / (freqs.length * 1.5); // normalize
+        }
+        
+        const data: AudioData = { samples, fs, channels: 1, bitDepth: 32 };
+        setAudioData(data);
+        setFileName('Demo: Piano Chord (Synthesized)');
+        setTargetFs(8000);
+      } else {
+        // Fetch pre-loaded MP3s
+        const url = type === 'music' ? '/demos/drum-loop.mp3' : '/demos/vocal.mp3';
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Failed to fetch demo');
+        const arrayBuffer = await res.arrayBuffer();
+        
+        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+        
+        const data: AudioData = {
+          samples: audioBuffer.getChannelData(0), // Take left channel
+          fs: audioBuffer.sampleRate,
+          channels: audioBuffer.numberOfChannels,
+          bitDepth: 32,
+        };
+        
+        setAudioData(data);
+        setFileName(`Demo: ${type === 'music' ? 'Electronic Music' : 'Spoken Word'}`);
+        setTargetFs(Math.min(data.fs / 2, 8000));
+      }
+      fileInputRef.current = null;
+    } catch (err) {
+      console.error('Failed to load demo:', err);
+      alert('Failed to load demo audio.');
+    } finally {
+      setDemoLoading(null);
+    }
+  }, []);
 
   // ── Cloud upload ──────────────────────────────────────────
 
@@ -235,6 +361,33 @@ export default function AudioTab({ edu }: { edu: boolean }) {
         {/* Audio Source */}
         <Panel title="Audio Source" icon={<MicIcon />}>
           <div className="space-y-4">
+            {/* Demo Samples */}
+            <div>
+              <div className="text-xs font-medium text-white/50 mb-2">Pre-loaded Demos</div>
+              <div className="grid grid-cols-3 gap-2">
+                <DemoButton 
+                  icon="🎵" 
+                  label="Music" 
+                  loading={demoLoading === 'music'} 
+                  onClick={() => handleLoadDemo('music')} 
+                />
+                <DemoButton 
+                  icon="🗣️" 
+                  label="Vocal" 
+                  loading={demoLoading === 'vocal'} 
+                  onClick={() => handleLoadDemo('vocal')} 
+                />
+                <DemoButton 
+                  icon="🎹" 
+                  label="Piano" 
+                  loading={demoLoading === 'piano'} 
+                  onClick={() => handleLoadDemo('piano')} 
+                />
+              </div>
+            </div>
+            
+            <div className="h-px bg-white/[0.06]" />
+
             {/* Upload */}
             <div>
               <div className="text-xs font-medium text-white/50 mb-2">Upload WAV</div>
@@ -247,6 +400,36 @@ export default function AudioTab({ edu }: { edu: boolean }) {
               </label>
             </div>
             
+            <div className="h-px bg-white/[0.06]" />
+
+            {/* Record Mic */}
+            <div>
+              <div className="text-xs font-medium text-white/50 mb-2 flex items-center justify-between">
+                <span>Microphone</span>
+                {isRecording && <span className="text-[10px] text-red-400 font-bold animate-pulse">● RECORDING</span>}
+              </div>
+              <button 
+                onClick={isRecording ? stopRecording : startRecording}
+                className={`w-full h-10 rounded-xl border flex items-center justify-center gap-2 text-sm font-medium transition-all ${
+                  isRecording 
+                    ? 'bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20 shadow-[0_0_15px_rgba(239,68,68,0.15)]' 
+                    : 'bg-white/[0.02] border-white/[0.08] hover:border-cyan-500/30 hover:bg-cyan-500/[0.02] text-white/60 hover:text-white'
+                }`}
+              >
+                {isRecording ? (
+                  <>
+                    <div className="w-2.5 h-2.5 rounded shadow-[0_0_8px_rgba(239,68,68,0.8)] bg-red-500" />
+                    Stop Recording
+                  </>
+                ) : (
+                  <>
+                    <MicIcon />
+                    Start Recording
+                  </>
+                )}
+              </button>
+            </div>
+
             <div className="h-px bg-white/[0.06]" />
 
             {/* Tone Generator */}
@@ -642,5 +825,22 @@ function QualIcon() {
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-400">
       <path d="M9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" /><circle cx="12" cy="12" r="10" />
     </svg>
+  );
+}
+
+function DemoButton({ icon, label, loading, onClick }: { icon: string; label: string; loading: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={loading}
+      className="flex flex-col items-center justify-center h-16 rounded-xl border border-white/[0.08] bg-white/[0.02] hover:bg-cyan-500/[0.05] hover:border-cyan-500/30 transition-all disabled:opacity-50"
+    >
+      {loading ? (
+        <div className="h-4 w-4 rounded-full border-2 border-cyan-500/30 border-t-cyan-500 animate-spin mb-1" />
+      ) : (
+        <span className="text-lg mb-1">{icon}</span>
+      )}
+      <span className="text-[10px] text-white/60 font-medium tracking-wide">{label}</span>
+    </button>
   );
 }
