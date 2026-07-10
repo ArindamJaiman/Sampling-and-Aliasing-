@@ -335,18 +335,7 @@ export default function AudioTab({ edu }: { edu: boolean }) {
     [aliasedSignal, correctedSignal, aliasFM, corrFM],
   );
 
-  // ── Autoplay Demos ────────────────────────────────────────
 
-  useEffect(() => {
-    if (demoLoadedFlag && originalSignal) {
-      // Small timeout to ensure state has flushed to UI
-      const t = setTimeout(() => {
-        play('original');
-        setDemoLoadedFlag(false);
-      }, 50);
-      return () => clearTimeout(t);
-    }
-  }, [demoLoadedFlag, originalSignal, play]);
 
   // ── Playback ──────────────────────────────────────────────
 
@@ -389,6 +378,19 @@ export default function AudioTab({ edu }: { edu: boolean }) {
     },
     [audioData, aliasedSignal, correctedSignal, stopPlayback],
   );
+
+  // ── Autoplay Demos ────────────────────────────────────────
+
+  useEffect(() => {
+    if (demoLoadedFlag && originalSignal) {
+      // Small timeout to ensure state has flushed to UI
+      const t = setTimeout(() => {
+        play('original');
+        setDemoLoadedFlag(false);
+      }, 50);
+      return () => clearTimeout(t);
+    }
+  }, [demoLoadedFlag, originalSignal, play]);
 
   // ── Download corrected WAV ────────────────────────────────
 
