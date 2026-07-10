@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, lazy, Suspense } from 'react';
+import { useState, useMemo, Suspense } from 'react';
 import {
   generateWave, evalExpression, parseCSV,
   timeMetrics, freqMetrics, analyzeAliasing,
@@ -10,8 +10,9 @@ import {
 import { downloadText } from '@/lib/audio';
 import { Panel, Metric, Field, QualityBar, StatusBadge, Explain, ActionButton } from '@/components/ui-bits';
 import { SignalChart, SpectrumChart } from '@/components/charts';
+import dynamic from 'next/dynamic';
 
-const WaterfallPlot = lazy(() => import('@/components/waterfall-plot'));
+const WaterfallPlot = dynamic(() => import('@/components/waterfall-plot'), { ssr: false });
 
 type InputMode = 'generator' | 'expression' | 'csv';
 

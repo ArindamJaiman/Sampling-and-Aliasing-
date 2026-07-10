@@ -1,13 +1,14 @@
 'use client';
 
-import { useState, useMemo, lazy, Suspense, useCallback, useEffect } from 'react';
+import { useState, useMemo, Suspense, useCallback, useEffect } from 'react';
 import * as THREE from 'three';
 import { simulateQuantum, type QuantumConfig, type QuantumResult, type BlochPoint } from '@/lib/quantum';
 import { downloadJSON } from '@/lib/audio';
 import { Panel, Metric, Field, QualityBar, StatusBadge, Explain, ActionButton } from '@/components/ui-bits';
 import { SpectrumChart } from '@/components/charts';
+import dynamic from 'next/dynamic';
 
-const BlochSphere = lazy(() => import('@/components/bloch-sphere'));
+const BlochSphere = dynamic(() => import('@/components/bloch-sphere'), { ssr: false });
 
 const DEFAULT_CONFIG: QuantumConfig = {
   phaseFrequency: 5,
