@@ -92,6 +92,9 @@ export default function AudioTab({ edu }: { edu: boolean }) {
 
   const startRecording = useCallback(async () => {
     try {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
@@ -106,7 +109,7 @@ export default function AudioTab({ edu }: { edu: boolean }) {
         const arrayBuffer = await audioBlob.arrayBuffer();
         
         // Decode the recorded browser audio (e.g. WebM/Opus) to raw PCM
-        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const ctx = audioCtxRef.current!;
         const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
         
         const data: AudioData = {
@@ -187,13 +190,18 @@ export default function AudioTab({ edu }: { edu: boolean }) {
         setFileName('Demo: Piano Chord (Synthesized)');
         setTargetFs(8000);
       } else {
+        // Create context synchronously to preserve user gesture
+        if (!audioCtxRef.current) {
+          audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        }
+        const ctx = audioCtxRef.current;
+        
         // Fetch pre-loaded MP3s
         const url = type === 'music' ? '/demos/drum-loop.mp3' : '/demos/vocal.mp3';
         const res = await fetch(url);
         if (!res.ok) throw new Error('Failed to fetch demo');
         const arrayBuffer = await res.arrayBuffer();
         
-        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
         const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
         
         const data: AudioData = {
@@ -329,8 +337,10 @@ export default function AudioTab({ edu }: { edu: boolean }) {
         fs = correctedSignal.fs;
       } else return;
 
-      const ctx = audioCtxRef.current ?? new AudioContext();
-      audioCtxRef.current = ctx;
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      const ctx = audioCtxRef.current;
       const buffer = ctx.createBuffer(1, samples.length, fs);
       buffer.getChannelData(0).set(samples);
       const source = ctx.createBufferSource();
